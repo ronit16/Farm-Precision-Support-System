@@ -1,0 +1,9 @@
+torch
+torchvision
+opencv-python
+pycocotools
+segment-geospatial 
+rasterio 
+matplotlib 
+pillow
+scikit-image
