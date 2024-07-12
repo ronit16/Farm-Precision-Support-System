@@ -98,8 +98,8 @@ def display_results(image_array, mask_with_boundaries, image_with_boundaries):
     show(mask_with_boundaries, ax=ax2, cmap='gray', title="Combined Mask")
     show(np.moveaxis(image_with_boundaries, -1, 0), ax=ax3, title="Image with Boundaries") # Converted back for rasterio
     plt.show()
-input_directory = "data/"
-os.makedirs("./output_georeferenced",exist_ok=True)
-output_directory = "output_georeferenced/"
+input_directory = "./data"
+os.makedirs("./SAM-Output",exist_ok=True)
+output_directory = "./SAM-Output"
 checkpoint_path = "model/sam_vit_h_4b8939.pth"
 process_tif_directory(input_directory, output_directory, checkpoint_path,1)
