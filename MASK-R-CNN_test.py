@@ -1,6 +1,9 @@
 import os
 import json
-import random
+from itertools import product
+from rasterio.merge import merge
+import rasterio as rio
+from rasterio import windows
 import cv2
 import numpy as np
 from PIL import Image
@@ -8,7 +11,7 @@ import rasterio
 from rasterio.transform import from_origin
 import torch
 from detectron2 import model_zoo
-from detectron2.engine import DefaultPredictor, DefaultTrainer
+from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog, DatasetCatalog
@@ -91,9 +94,9 @@ def visualize_prediction(img_path, predictor, cfg):
 
 def prediction_on_image_folder(input_dir, predictor, cfg):
 
-    output_dir = os.getcwd() + "/output"
+    output_dir = os.getcwd() + "/Mask_RCNN-Output/output"
     os.makedirs(output_dir, exist_ok=True)
-    output_mask_dir = os.getcwd() + "/output_masks"
+    output_mask_dir = os.getcwd() + "/Mask_RCNN-Output/output_masks"
     os.makedirs(output_mask_dir, exist_ok=True)
 
     for img_name in os.listdir(input_dir):
@@ -131,9 +134,9 @@ def prediction_on_image_folder(input_dir, predictor, cfg):
 
 def prediction_on_tiff(input_image, img_name, predictor, cfg,):
 
-    output_dir = os.getcwd() + "/output"
+    output_dir = os.getcwd() + "/Mask_RCNN-Output/output"
     os.makedirs(output_dir, exist_ok=True)
-    output_mask_dir = os.getcwd() + "/output_masks"
+    output_mask_dir = os.getcwd() + "/Mask_RCNN-Output/output_masks"
     os.makedirs(output_mask_dir, exist_ok=True)
    
     tiff_image=Image.open(input_image)
@@ -201,7 +204,8 @@ def area_calculation(outputs, binary_mask, img_name):
         }
         instance_details.append(instance)
 
-    output_instance_details_path = os.getcwd() + "/output_masks/" + img_name + ".json"
+    output_instance_details_path = os.getcwd() + "/Mask_RCNN-Output/output_json/" + img_name + ".json"
+    os.makedirs("Mask_RCNN-Output/output_json", exist_ok=True)
     with open(output_instance_details_path, 'w') as f:
         json.dump(instance_details, f, indent=4)
 
@@ -237,6 +241,64 @@ def geo_reference_mask(mask, output_tif_path, transform, crs):
     ) as dst:
         dst.write(mask, 1)
 
+def Create_chunk(in_path, out_path):
+    w=0
+    def get_tiles(ds, width=5, height=5):
+        nols, nrows = ds.meta['width'], ds.meta['height']
+        offsets = product(range(0, nols, width), range(0, nrows, height))
+        big_window = windows.Window(col_off=0, row_off=0, width=nols, height=nrows)
+        for col_off, row_off in  offsets:
+            window =windows.Window(col_off=col_off, row_off=row_off, width=width, height=height).intersection(big_window)
+            transform = windows.transform(window, ds.transform)
+            yield window, transform
+
+    image_files = [f for f in os.listdir(in_path) if f.endswith('.tif')]
+    for file in image_files:
+        with rio.open(os.path.join(in_path,file)) as inds:
+            tile_width, tile_height =1024,1024
+
+            meta = inds.meta.copy()
+
+            for window, transform in get_tiles(inds,tile_width, tile_height):
+                print(window)
+                meta['transform'] = transform
+                meta['width'], meta['height'] = window.width, window.height
+                outpath = os.path.join(out_path,format(w)+file.format(int(window.col_off), int(window.row_off)))
+                with rio.open(outpath, 'w', **meta) as outds:
+                    outds.write(inds.read(window=window))
+                    w=w+1
+
+def Merge_chunks(chunks_dir, output_file):
+    # Get list of all chunk files
+    chunk_files = [os.path.join(chunks_dir, f) for f in os.listdir(chunks_dir) if f.endswith('.tif')]
+
+    # Read all chunks into a list of Rasterio datasets
+    datasets = [rio.open(chunk) for chunk in chunk_files]
+
+    # Merge datasets into a single image
+    mosaic, out_trans = merge(datasets)
+
+    # Copy metadata from the first dataset
+    out_meta = datasets[0].meta.copy()
+
+    # Update metadata with new dimensions, transform, and other properties
+    out_meta.update({
+        "height": mosaic.shape[1],
+        "width": mosaic.shape[2],
+        "transform": out_trans,
+        "count": mosaic.shape[0]
+    })
+
+    # Write the mosaic to a new GeoTIFF file
+    with rio.open(output_file, 'w', **out_meta) as dest:
+        dest.write(mosaic)
+
+    # Close all datasets
+    for dataset in datasets:
+        dataset.close()
+
+    print(f'Merged image saved to {output_file}')
+
 def main():
     cfg, predictor = cfg_setup()
     choice=int(input("Press 1 if you want to test on jpg images in farm-data/test folder \n Press 2 if you want to test on tiff images in data folder"))
@@ -246,19 +308,24 @@ def main():
         prediction_on_image_folder(input_dir, predictor, cfg)
     elif choice==2:
         # Prediction on Tiff image
-        tiff_folder_path = "./data"
+        input_dir = "./data"
+        tiff_folder_path = "./Mask_RCNN-Output/mask_tiffs"
+        os.makedirs(tiff_folder_path, exist_ok=True)
+
+        Create_chunk(input_dir, tiff_folder_path)
+        
         for img_name in os.listdir(tiff_folder_path):
             if img_name.endswith(('.tif', '.tiff')):
                 outputs, binary_mask = prediction_on_tiff(os.path.join(tiff_folder_path, img_name),img_name, predictor, cfg)
                 area_calculation(outputs, binary_mask, img_name)
                 transform, crs = get_georeferencing_info(os.path.join(tiff_folder_path,img_name))
-                os.makedirs("./output_georeferenced",exist_ok=True)
-                output_georeferenced_mask_path = os.path.join("./output_georeferenced", img_name)
+                os.makedirs("./Mask_RCNN-Output/output_georeferenced",exist_ok=True)
+                output_georeferenced_mask_path = os.path.join("./Mask_RCNN-Output/output_georeferenced", img_name)
                 geo_reference_mask(binary_mask, output_georeferenced_mask_path, transform, crs)
 
+        Merge_chunks("./Mask_RCNN-Output/output_georeferenced", "./Mask_RCNN-Output/merged_image.tif")
     else:
         print("Invalid choice! Please choose either 1 or 2.")
-                
 
 if __name__ == "__main__":
     main()
