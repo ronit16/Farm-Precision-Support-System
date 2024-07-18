@@ -58,7 +58,7 @@ def get_farm_dicts(img_dir, annot_file):
     return dataset_dicts
 
 for d in ["train", "test"]:
-    DatasetCatalog.register("farm_" + d, lambda d=d: get_farm_dicts("./farm-data" + d, "./farm-data" + d + "/_annotations.coco.json"))
+    DatasetCatalog.register("farm_" + d, lambda d=d: get_farm_dicts("./farm-data/" + d, "./farm-data/" + d + "/_annotations.coco.json"))
     MetadataCatalog.get("farm_" + d).set(thing_classes=["farm", "Baren-Land", "farm"])
 
 cfg = get_cfg()
