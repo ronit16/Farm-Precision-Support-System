@@ -78,7 +78,7 @@ def cfg_setup():
     cfg.MODEL.WEIGHTS = "./model/model_final.pth"
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
     cfg.MODEL.DEVICE = "cpu"  # Use CPU for inference
-    cfg.MODEL.ROI_HEADS.NUM_CLASSES = 3  # 1 class (0-1
+    cfg.MODEL.ROI_HEADS.NUM_CLASSES = 3  # 1 class (0-1)
 
     predictor = DefaultPredictor(cfg)
     return cfg, predictor
